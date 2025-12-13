@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn import svm
 import joblib
-from tensorflow.keras.applications.vgg16 import VGG16
+# from tensorflow.keras.applications.vgg16 import VGG16 # Not needed for dummy generation
 import os
 
 print("Creating Dummy Model for Demonstration...")
@@ -12,7 +12,7 @@ feature_size = 25088
 num_samples = 50
 
 X_dummy = np.random.rand(num_samples, feature_size)
-y_dummy = np.random.choice(['happy', 'sad', 'neutral', 'angry'], num_samples)
+y_dummy = np.random.choice(['happy', 'sad', 'neutral', 'angry', 'fear', 'surprise', 'disgust'], num_samples)
 
 # 2. Train a fast SVM
 clf = svm.SVC(kernel='linear', probability=True)

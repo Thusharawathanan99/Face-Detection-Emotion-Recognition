@@ -6,6 +6,7 @@ from tensorflow.keras.models import Model
 from sklearn import svm
 import joblib
 import os
+import emotions
 
 class EmotionAnalyzer:
     def __init__(self, classifier_path='emotion_classifier.pkl'):
@@ -107,6 +108,17 @@ class EmotionAnalyzer:
         except Exception as e:
             print(f"Prediction error: {e}")
             return "Error during prediction", 0.0, (x, y, width, height)
+
+    def get_emotion_description(self, label):
+        """Return a human-readable description for a predicted emotion label.
+
+        Uses the descriptions from `emotions.py`. This helper is non-invasive and
+        returns a fallback string when the label is unknown.
+        """
+        try:
+            return emotions.get_description(label)
+        except Exception:
+            return "No description available."
 
     def train(self, training_data, labels):
         """

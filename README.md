@@ -40,3 +40,42 @@ The `create_dummy_model.py` script generates random predictions. To make it smar
 - `emotion_analyzer.py`: The core AI engine.
 - `train_model.py`: Training script.
 - `create_dummy_model.py`: Setup script for quick demo.
+
+## 📚 Supported Emotions
+
+This project ships a central list of emotion labels and short descriptions in `emotions.py`.
+The following labels are included (human-readable descriptions available via the `get_description()` helper):
+
+- Joy
+- Sadness
+- Anger
+- Fear
+- Love
+- Disgust
+- Surprise
+- Shame
+- Guilt
+- Pride
+- Envy
+- Jealousy
+- Grief
+- Hope
+- Loneliness
+- Gratitude
+- Anxiety
+- Contentment
+- Nostalgia
+- Awe
+
+If you're building or retraining models, ensure your dataset and classifier labels match these names exactly (case-insensitive matching is supported by the helper).
+
+### Alias support
+
+To remain backwards-compatible with common dataset folder names and older models, the project supports a set of aliases. Examples:
+
+- `happy`, `joyful` -> `Joy`
+- `angry` -> `Anger`
+- `sad` -> `Sadness`
+- `neutral` -> `Contentment` (mapped to the closest canonical label)
+
+The helper `emotions.get_description(label)` and `EmotionAnalyzer.get_emotion_description(label)` will resolve these aliases case-insensitively and return the canonical human-readable description.

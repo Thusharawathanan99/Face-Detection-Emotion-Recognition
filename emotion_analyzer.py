@@ -34,10 +34,16 @@ class EmotionAnalyzer:
         if os.path.exists(self.classifier_path):
             print(f"Loading emotion classifier from {self.classifier_path}...")
             self.classifier = joblib.load(self.classifier_path)
+            # Record known classes (if the classifier exposes them)
+            try:
+                self.class_names = list(self.classifier.classes_)
+            except Exception:
+                self.class_names = []
         else:
             print("No pre-trained classifier found. You will need to train the model first.")
             # Initialize a new SVM for training later
             self.classifier = svm.SVC(kernel='linear', probability=True)
+            self.class_names = []
 
     def preprocess_face(self, face_img):
         """
@@ -110,7 +116,7 @@ class EmotionAnalyzer:
                 # Get probabilities for all classes (if available)
                 if hasattr(self.classifier, 'predict_proba'):
                     probs = self.classifier.predict_proba(features)[0]
-                    classes = list(self.classifier.classes_)
+                    classes = list(getattr(self.classifier, 'classes_', self.class_names))
                 else:
                     # Fallback: classifier doesn't support predict_proba
                     # Try decision_function -> softmax
@@ -118,7 +124,7 @@ class EmotionAnalyzer:
                         scores = self.classifier.decision_function(features)[0]
                         exps = np.exp(scores - np.max(scores))
                         probs = exps / np.sum(exps)
-                        classes = list(self.classifier.classes_)
+                        classes = list(getattr(self.classifier, 'classes_', self.class_names))
                     except Exception:
                         # As a last resort, mark as unknown
                         probs = np.array([1.0])
@@ -146,11 +152,16 @@ class EmotionAnalyzer:
                 except Exception:
                     emotion_label = str(raw_label)
                 
+                # Flag when the classifier only knows a single class — helpful
+                # for UI warnings and preventing spurious logging.
+                single_class = (len(classes) <= 1)
+
                 results.append({
                     "label": emotion_label,
                     "confidence": confidence,
                     "box": (x, y, width, height),
-                    "all_scores": emotion_probs
+                    "all_scores": emotion_probs,
+                    "single_class": single_class
                 })
 
             except Exception as e:

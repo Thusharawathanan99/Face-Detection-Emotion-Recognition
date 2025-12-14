@@ -78,7 +78,7 @@ class CameraNode:
             "Guilt": "Sorry", "Pride": "Proud", "Envy": "Jealous", "Jealousy": "Jealous",
             "Grief": "Crying", "Hope": "Hopeful", "Loneliness": "Lonely", 
             "Gratitude": "Thankful", "Anxiety": "Worried", "Contentment": "Happy",
-            "Nostalgia": "Missing", "Awe": "Wow",
+            "Nostalgia": "Missing", "Awe": "Wow", "Neutral": "Neutral",
             # Lowercase mappings for new dataset
             "happy": "Happy", "sad": "Sad", "angry": "Angry", "neutral": "Neutral"
         }
@@ -158,46 +158,51 @@ class CameraNode:
             # Optimization: Analyze every 10th frame for stability
             frame_count += 1
             if frame_count % 10 == 0:
-                # Analyze frame
-                raw_label, self.last_conf, self.last_face_box = self.analyzer.detect_and_classify(frame)
+                # Analyze frame - now returns a list of dicts
+                self.last_results = self.analyzer.detect_and_classify(frame)
                 
-                # Convert to Easy English
-                self.last_label = self.simple_map.get(raw_label, raw_label)
-                
-                # --- SIMULATION OVERRIDE ---
-                if self.simulation_mode and isinstance(self.last_face_box, tuple):
-                    import random
-                    raw_sim = random.choice(self.all_emotions)
-                    self.last_label = self.simple_map.get(raw_sim, raw_sim)
-                    self.last_conf = random.uniform(0.75, 0.99)
-                # ---------------------------
-
-                # Check for Alert (Using simplified names)
+                # Check for Alert in ANY face
+                any_alert = False
                 negative_emotions = [
                     "Sad", "Angry", "Scared", "Yuck", "Ashamed", "Sorry", 
                     "Jealous", "Crying", "Lonely", "Worried"
                 ]
 
-                if isinstance(self.last_face_box, tuple) and self.last_label in negative_emotions:
-                    self.current_color = (0, 0, 255) # Red for Alert
-                    self.log_alert(self.last_label, self.last_conf)
-                    if HAS_SOUND:
-                         try:
-                             # Two-tone alert
-                             def play_alert():
-                                 winsound.Beep(600, 150)
-                                 winsound.Beep(450, 250)
-                             threading.Thread(target=play_alert, daemon=True).start()
-                         except: pass
-                else:
-                    self.current_color = (255, 255, 0) # Cyan/Teal for Normal
+                # Update status for each face
+                for res in self.last_results:
+                    raw_lbl = res['label']
+                    simple_lbl = self.simple_map.get(raw_lbl, raw_lbl)
+                    res['simple_label'] = simple_lbl # Store for drawing
+                    
+                    if simple_lbl in negative_emotions:
+                        any_alert = True
+                        res['is_alert'] = True
+                        # Only actually log alerts when the classifier appears trained
+                        # (i.e., has more than one class). This prevents spamming the
+                        # alert log when a broken/untrained classifier always predicts
+                        # the same class.
+                        if not res.get('single_class', False):
+                            self.log_alert(simple_lbl, res['confidence'])
+                        else:
+                            # mark but do not persist noisy alerts
+                            res['logged_as_warning'] = True
+                    else:
+                        res['is_alert'] = False
 
-            # Use last detected values to keep drawing smooth between analysis frames
-            label = getattr(self, 'last_label', None)
-            conf = getattr(self, 'last_conf', 0.0)
-            face_box = getattr(self, 'last_face_box', None)
-            color = getattr(self, 'current_color', (255, 255, 0))
+                if any_alert and HAS_SOUND:
+                     try:
+                         # Two-tone alert
+                         def play_alert():
+                             winsound.Beep(600, 150)
+                             winsound.Beep(450, 250)
+                         # Prevent sound overlap/spam
+                         if threading.active_count() < 5: 
+                            threading.Thread(target=play_alert, daemon=True).start()
+                     except: pass
 
+            # Retrieve processed results
+            results = getattr(self, 'last_results', [])
+            
             # --- CINEMATIC DRAWING ---
             
             # Letterbox
@@ -210,77 +215,84 @@ class CameraNode:
             cv2.putText(display_frame, f"REC | {timestamp}", (20, bar_height - 15), 
                        cv2.FONT_HERSHEY_PLAIN, 1, (200, 200, 200), 1)
             
-            cv2.putText(display_frame, "SYSTEM: ONLINE", (w_img - 180, bar_height - 15), 
+            cv2.putText(display_frame, f"SYSTEM: ONLINE | TARGETS: {len(results)}", (w_img - 250, bar_height - 15), 
                        cv2.FONT_HERSHEY_PLAIN, 1, (0, 255, 0), 1)
 
-            if isinstance(face_box, tuple):
-                x, y, w, h = face_box
+            # Draw OpenCV primitives first (Lines/Boxes) for all faces
+            for i, res in enumerate(results):
+                x, y, w, h = res['box']
+                is_alert = res.get('is_alert', False)
+                color = (0, 0, 255) if is_alert else (255, 255, 0)
                 
-                # 1. Corner Brackets
+                # Corner Brackets
                 line_len = int(w * 0.2)
-                thickness = 2
-                
-                # Draw Brackets
                 pts = [
-                    ((x, y), (x + line_len, y)), ((x, y), (x, y + line_len)), # TL
-                    ((x + w, y), (x + w - line_len, y)), ((x + w, y), (x + w, y + line_len)), # TR
-                    ((x, y + h), (x + line_len, y + h)), ((x, y + h), (x, y + h - line_len)), # BL
-                    ((x + w, y + h), (x + w - line_len, y + h)), ((x + w, y + h), (x + w, y + h - line_len)) # BR
+                    ((x, y), (x + line_len, y)), ((x, y), (x, y + line_len)),
+                    ((x + w, y), (x + w - line_len, y)), ((x + w, y), (x + w, y + line_len)),
+                    ((x, y + h), (x + line_len, y + h)), ((x, y + h), (x, y + h - line_len)),
+                    ((x + w, y + h), (x + w - line_len, y + h)), ((x + w, y + h), (x + w, y + h - line_len))
                 ]
                 for p1, p2 in pts:
-                    cv2.line(display_frame, p1, p2, color, thickness)
+                    cv2.line(display_frame, p1, p2, color, 2)
                 
-                # 2. Scanning Effect
+                # Scanline
                 scan_line_y += (5 * scan_direction)
-                if scan_line_y > h: scan_direction = -1
-                if scan_line_y < 0: scan_direction = 1
-                
-                real_scan_y = y + scan_line_y
+                real_scan_y = y + (frame_count % h)
                 if y <= real_scan_y <= y + h:
                     cv2.line(display_frame, (x, real_scan_y), (x + w, real_scan_y), color, 1)
-                    if real_scan_y - 2 > y: cv2.line(display_frame, (x, real_scan_y-2), (x+w, real_scan_y-2), color, 1)
 
-                # 3. Data Panel with Sticker
-                # Widen panel for sticker space
-                panel_w = 300 
-                panel_h = 110
+                # Panel Background
+                panel_w, panel_h = 300, 110
                 panel_x = x + w + 10
                 panel_y = y
-                if panel_x + panel_w > w_img: panel_x = x - (panel_w + 10) 
+                if panel_x + panel_w > w_img: panel_x = x - (panel_w + 10)
                 
-                # Background
-                overlay = display_frame.copy()
-                cv2.rectangle(overlay, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (0, 0, 0), -1)
-                cv2.addWeighted(overlay, 0.6, display_frame, 0.4, 0, display_frame)
+                sub = display_frame.copy()
+                cv2.rectangle(sub, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (0, 0, 0), -1)
+                cv2.addWeighted(sub, 0.6, display_frame, 0.4, 0, display_frame)
+
+            # Draw PIL Text for all faces
+            if has_pil:
+                img_pil = Image.fromarray(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB))
+                draw = ImageDraw.Draw(img_pil)
+                # If classifier only has a single class, show a prominent warning
+                # so the operator knows the model needs retraining.
+                try:
+                    classifier_warning = not self.analyzer.class_names or len(self.analyzer.class_names) <= 1
+                except Exception:
+                    classifier_warning = True
+                if classifier_warning:
+                    w_warn, h_warn = w_img - 40, 40
+                    draw.rectangle([(20, bar_height + 10), (20 + w_warn, bar_height + 10 + h_warn)], fill=(40, 10, 10))
+                    draw.text((30, bar_height + 15), "WARNING: Classifier may be undertrained (single class). Retrain for reliable results.", font=hud_font, fill=(255, 200, 200))
                 
-                if has_pil:
-                    img_pil = Image.fromarray(cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB))
-                    draw = ImageDraw.Draw(img_pil)
-                    
+                for i, res in enumerate(results):
+                    x, y, w, h = res['box']
+                    label = res.get('simple_label', 'Unknown')
+                    conf = res.get('confidence', 0.0)
+                    is_alert = res.get('is_alert', False)
+                    color = (0, 0, 255) if is_alert else (255, 255, 0)
                     pil_color = (color[2], color[1], color[0])
                     white = (255, 255, 255)
                     
-                    # Text Info
-                    draw.text((panel_x + 10, panel_y + 10), f"SUBJECT DETECTED", font=hud_font, fill=white)
+                    panel_w = 300
+                    panel_x = x + w + 10
+                    if panel_x + panel_w > w_img: panel_x = x - (panel_w + 10)
+                    panel_y = y
+                    
+                    draw.text((panel_x + 10, panel_y + 10), f"SUBJECT {i+1}", font=hud_font, fill=white)
                     draw.text((panel_x + 10, panel_y + 35), f"{label.upper()}", font=title_font, fill=pil_color)
                     
-                    # Confidence Bar
+                    # Bar
                     bar_w = 160
-                    bar_h = 6
-                    bar_filled = int(bar_w * conf)
-                    draw.rectangle([panel_x + 10, panel_y + 80, panel_x + 10 + bar_w, panel_y + 80 + bar_h], outline=white, width=1)
-                    draw.rectangle([panel_x + 10, panel_y + 80, panel_x + 10 + bar_filled, panel_y + 80 + bar_h], fill=pil_color)
+                    draw.rectangle([panel_x + 10, panel_y + 80, panel_x + 10 + bar_w, panel_y + 80 + 6], outline=white, width=1)
+                    draw.rectangle([panel_x + 10, panel_y + 80, panel_x + 10 + int(bar_w*conf), panel_y + 80 + 6], fill=pil_color)
                     
-                    # --- EMOTIONAL STICKER ---
+                    # Emoji
                     emoji = emotion_emojis.get(label, "")
-                    # Draw large emoji on the right side
-                    # Just rendering text with a large font size is the best way to do a "sticker" without assets
                     draw.text((panel_x + 190, panel_y + 10), emoji, font=sticker_font, fill=white)
-                    
-                    display_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
-                else:
-                    cv2.putText(display_frame, f"{label}", (panel_x + 10, panel_y + 30), cv2.FONT_HERSHEY_PLAIN, 1.5, color, 2)
-                    cv2.putText(display_frame, f"Conf: {conf:.2f}", (panel_x + 10, panel_y + 60), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                
+                display_frame = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
 
             cv2.imshow('Smart Caretaker - Cinematic Vision', display_frame)
 

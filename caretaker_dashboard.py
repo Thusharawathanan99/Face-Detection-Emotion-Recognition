@@ -4,6 +4,10 @@ import pandas as pd
 import plotly.express as px
 import time
 import os
+import cv2
+import numpy as np
+from PIL import Image
+from emotion_analyzer import EmotionAnalyzer
 
 # Set page config with wide layout and dark theme
 st.set_page_config(
@@ -131,6 +135,42 @@ with st.sidebar:
     auto_refresh = st.checkbox("LIVE FEED SYNC", value=True)
     refresh_rate = st.slider("REFRESH RATE (s)", 0.5, 5.0, 1.0)
     st.info("System Status: OPERATIONAL")
+    st.markdown("---")
+    st.markdown("### TEST MODEL (Upload)")
+    model_path = st.text_input("Model file", value="emotion_classifier.pkl")
+    uploaded = st.file_uploader("Upload image to test model", type=["png", "jpg", "jpeg"])
+    if uploaded is not None:
+        try:
+            # Read uploaded image and convert to BGR (OpenCV expected input path)
+            pil_img = Image.open(uploaded).convert('RGB')
+            arr = np.array(pil_img)
+            bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+
+            analyzer_test = EmotionAnalyzer(classifier_path=model_path)
+            test_results = analyzer_test.detect_and_classify(bgr)
+
+            if not test_results:
+                st.warning("No faces found in the uploaded image.")
+            else:
+                st.markdown("**Predictions:**")
+                for i, r in enumerate(test_results):
+                    lbl = r.get('label', 'Unknown')
+                    conf = r.get('confidence', 0.0)
+                    st.write(f"Subject {i+1}: {lbl} — {conf:.2%}")
+
+                # Annotate and display image
+                for r in test_results:
+                    if 'box' in r and r['box']:
+                        x, y, w, h = r['box']
+                        color = (0, 0, 255) if r.get('is_alert', False) else (0, 255, 0)
+                        cv2.rectangle(bgr, (x, y), (x + w, y + h), color, 2)
+                        cv2.putText(bgr, f"{r.get('label')}:{r.get('confidence'):.2f}", (x, max(y-10,0)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+                annotated = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+                st.image(annotated, use_column_width=True)
+
+        except Exception as e:
+            st.error(f"Error running model: {e}")
 
 # Main Dashboard Layout
 placeholder = st.empty()

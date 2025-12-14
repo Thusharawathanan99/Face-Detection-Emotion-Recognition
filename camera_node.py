@@ -280,8 +280,9 @@ class CameraNode:
                     if panel_x + panel_w > w_img: panel_x = x - (panel_w + 10)
                     panel_y = y
                     
-                    draw.text((panel_x + 10, panel_y + 10), f"SUBJECT {i+1}", font=hud_font, fill=white)
-                    draw.text((panel_x + 10, panel_y + 35), f"{label.upper()}", font=title_font, fill=pil_color)
+                    # Show label and confidence (removed explicit 'SUBJECT' header)
+                    draw.text((panel_x + 10, panel_y + 10), f"{label.upper()}", font=title_font, fill=pil_color)
+                    draw.text((panel_x + 10, panel_y + 45), f"CONF: {conf:.2f}", font=hud_font, fill=white)
                     
                     # Bar
                     bar_w = 160

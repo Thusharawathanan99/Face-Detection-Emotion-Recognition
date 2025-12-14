@@ -4,7 +4,12 @@ import pandas as pd
 import plotly.express as px
 import time
 import os
-import cv2
+try:
+    import cv2
+    HAS_CV2 = True
+except Exception as _cv_err:
+    cv2 = None
+    HAS_CV2 = False
 import numpy as np
 from PIL import Image
 from emotion_analyzer import EmotionAnalyzer
@@ -175,6 +180,13 @@ with st.sidebar:
 # Main Dashboard Layout
 placeholder = st.empty()
 
+# If OpenCV failed to import, show actionable error and stop early.
+if not HAS_CV2:
+    st.error("OpenCV failed to import (libGL.so.1 missing).\n" \
+             "For Streamlit Cloud, update `requirements.txt` to use `opencv-python-headless` or add an Aptfile installing `libgl1`/`libgl1-mesa-glx`.\n" \
+             "I have updated `requirements.txt` to prefer `opencv-python-headless` — redeploy the app or reinstall dependencies and try again.")
+    st.stop()
+
 while True:
     df = load_data()
     
@@ -202,7 +214,6 @@ while True:
                 
                 st.markdown(f"""
                 <div class="sticker-box" style="border-color: {border_color}">
-                    <div style="color: #888; letter-spacing: 2px;">SUBJECT STATUS</div>
                     <div class="sticker-emoji">{sticker}</div>
                     <div class="{status_class}">{last_emotion.upper()}</div>
                     <div style="margin-top:10px; font-size: 0.8em; color: {border_color}">CONFIDENCE: {last_conf:.2f}</div>

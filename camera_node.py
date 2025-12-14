@@ -72,12 +72,15 @@ class CameraNode:
 
         # Simple "Easy English" Map
         self.simple_map = {
+            # Standard mappings
             "Joy": "Happy", "Sadness": "Sad", "Anger": "Angry", "Fear": "Scared",
             "Love": "Love", "Disgust": "Yuck", "Surprise": "Wow", "Shame": "Ashamed",
             "Guilt": "Sorry", "Pride": "Proud", "Envy": "Jealous", "Jealousy": "Jealous",
             "Grief": "Crying", "Hope": "Hopeful", "Loneliness": "Lonely", 
             "Gratitude": "Thankful", "Anxiety": "Worried", "Contentment": "Happy",
-            "Nostalgia": "Missing", "Awe": "Wow"
+            "Nostalgia": "Missing", "Awe": "Wow",
+            # Lowercase mappings for new dataset
+            "happy": "Happy", "sad": "Sad", "angry": "Angry", "neutral": "Neutral"
         }
 
         emotion_emojis = {

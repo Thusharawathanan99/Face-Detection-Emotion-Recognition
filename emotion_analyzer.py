@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from mtcnn import MTCNN
 from tensorflow.keras.applications import VGG16
+from tensorflow.keras.applications.vgg16 import preprocess_input
 from tensorflow.keras.models import Model
 from sklearn import svm
 import joblib
@@ -42,12 +43,16 @@ class EmotionAnalyzer:
         """
         Resizes and normalizes the face image for VGG16.
         """
-        # Resize to VGG16 input size
-        face_resized = cv2.resize(face_img, (224, 224))
-        # Convert to float and normalize
-        face_normalized = face_resized / 255.0
+        # Resize to VGG16 input size and convert to float32
+        # Note: Keras' VGG16 `preprocess_input` expects pixel values in the
+        # 0-255 range and internally converts from RGB->BGR and subtracts the
+        # ImageNet mean. We therefore resize and cast to float32 and then
+        # call preprocess_input.
+        face_resized = cv2.resize(face_img, (224, 224)).astype('float32')
+        # Ensure the image is in RGB order (face_img is expected to be RGB)
+        face_preprocessed = preprocess_input(face_resized)
         # Add batch dimension (1, 224, 224, 3)
-        face_batch = np.expand_dims(face_normalized, axis=0)
+        face_batch = np.expand_dims(face_preprocessed, axis=0)
         return face_batch
 
     def extract_features(self, face_img):
@@ -81,33 +86,77 @@ class EmotionAnalyzer:
         detections = self.face_detector.detect_faces(rgb_img)
         
         if not detections:
-            return "No face detected", 0.0, None
+            return []
 
-        # Process the largest face found
-        # Detections are a list of dicts: [{'box': [x, y, w, h], 'confidence': 0.99, ...}]
-        largest_face = max(detections, key=lambda d: d['box'][2] * d['box'][3])
-        x, y, width, height = largest_face['box']
+        results = []
         
-        # Ensure coordinates are within image bounds
-        x, y = max(0, x), max(0, y)
-        
-        # Crop the face
-        face_img = rgb_img[y:y+height, x:x+width]
+        # Process ALL faces found
+        for face in detections:
+            try:
+                x, y, width, height = face['box']
+                x, y = max(0, x), max(0, y) # clamp coords
+                
+                # Crop the face
+                face_img = rgb_img[y:y+height, x:x+width]
+                
+                if face_img.size == 0: continue
 
-        # Stage 2: Feature Extraction & Classification
-        if not hasattr(self.classifier, 'classes_'):
-             return "Model not trained", 0.0, (x, y, width, height)
+                # Stage 2: Feature Extraction & Classification
+                if not hasattr(self.classifier, 'classes_'):
+                     continue
 
-        try:
-            features = self.extract_features(face_img)
-            
-            emotion_label = self.classifier.predict(features)[0]
-            confidence = np.max(self.classifier.predict_proba(features))
-            
-            return emotion_label, confidence, (x, y, width, height)
-        except Exception as e:
-            print(f"Prediction error: {e}")
-            return "Error during prediction", 0.0, (x, y, width, height)
+                features = self.extract_features(face_img)
+
+                # Get probabilities for all classes (if available)
+                if hasattr(self.classifier, 'predict_proba'):
+                    probs = self.classifier.predict_proba(features)[0]
+                    classes = list(self.classifier.classes_)
+                else:
+                    # Fallback: classifier doesn't support predict_proba
+                    # Try decision_function -> softmax
+                    try:
+                        scores = self.classifier.decision_function(features)[0]
+                        exps = np.exp(scores - np.max(scores))
+                        probs = exps / np.sum(exps)
+                        classes = list(self.classifier.classes_)
+                    except Exception:
+                        # As a last resort, mark as unknown
+                        probs = np.array([1.0])
+                        classes = [getattr(self.classifier, 'classes_', ["Unknown"])[0]]
+
+                # Map classifier class names to canonical emotion labels where possible
+                emotion_probs = {}
+                for i, cls in enumerate(classes):
+                    try:
+                        canon = emotions.normalize_label(str(cls))
+                        key = canon if canon is not None else str(cls)
+                    except Exception:
+                        key = str(cls)
+                    emotion_probs[key] = float(probs[i])
+
+                # Find top emotion index
+                best_idx = int(np.argmax(probs))
+                raw_label = classes[best_idx]
+                confidence = float(probs[best_idx])
+
+                # Normalize the raw label to canonical project label when possible
+                try:
+                    canonical = emotions.normalize_label(raw_label)
+                    emotion_label = canonical if canonical is not None else str(raw_label)
+                except Exception:
+                    emotion_label = str(raw_label)
+                
+                results.append({
+                    "label": emotion_label,
+                    "confidence": confidence,
+                    "box": (x, y, width, height),
+                    "all_scores": emotion_probs
+                })
+
+            except Exception as e:
+                print(f"Error processing a face: {e}")
+                
+        return results
 
     def get_emotion_description(self, label):
         """Return a human-readable description for a predicted emotion label.
